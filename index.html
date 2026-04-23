@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>疯狂原始人</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #0b1020;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, PingFang SC, Microsoft YaHei, sans-serif;
+      }
+
+      #app {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+
+      #hud {
+        position: absolute;
+        left: 0;
+        top: 0;
+        right: 0;
+        padding: max(10px, env(safe-area-inset-top)) 12px 10px 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        pointer-events: none;
+        color: #e8f0ff;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+        font-weight: 700;
+      }
+
+      #hud .left,
+      #hud .right {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+
+      #hud .chip {
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+      }
+
+      #toast {
+        position: absolute;
+        left: 50%;
+        top: max(54px, env(safe-area-inset-top));
+        transform: translateX(-50%);
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 140ms linear;
+        max-width: min(92vw, 720px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      #toast.show {
+        opacity: 1;
+      }
+
+      #controls {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      #joystick {
+        position: absolute;
+        left: max(14px, env(safe-area-inset-left));
+        bottom: max(14px, env(safe-area-inset-bottom));
+        width: 168px;
+        height: 168px;
+        pointer-events: auto;
+        touch-action: none;
+      }
+
+      #jumpBtn {
+        position: absolute;
+        right: max(14px, env(safe-area-inset-right));
+        bottom: max(14px, env(safe-area-inset-bottom));
+        width: 148px;
+        height: 148px;
+        border-radius: 999px;
+        pointer-events: auto;
+        touch-action: none;
+        background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.28), rgba(0, 0, 0, 0.3));
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        display: grid;
+        place-items: center;
+        color: rgba(255, 255, 255, 0.92);
+        font-weight: 900;
+        font-size: 18px;
+        letter-spacing: 1px;
+      }
+
+      #jumpBtn:active {
+        transform: translateY(1px);
+      }
+
+      #rotateHint {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 14, 26, 0.92);
+        color: #e8f0ff;
+        font-weight: 900;
+        text-align: center;
+        padding: 20px;
+        pointer-events: none;
+      }
+
+      #rotateHint.show {
+        display: flex;
+      }
+
+      #fatalError {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.88);
+        color: #fff;
+        text-align: center;
+        padding: 24px;
+        z-index: 20;
+      }
+
+      #fatalError.show {
+        display: flex;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="c"></canvas>
+      <div id="hud">
+        <div class="left">
+          <div class="chip" id="titleChip">疯狂原始人</div>
+          <div class="chip" id="levelChip">第 1 关</div>
+        </div>
+        <div class="right">
+          <div class="chip" id="deathChip">死亡：0</div>
+          <div class="chip" id="bestChip">最佳：1</div>
+        </div>
+      </div>
+      <div id="toast"></div>
+      <div id="controls">
+        <canvas id="joystick"></canvas>
+        <div id="jumpBtn">跳跃</div>
+      </div>
+      <div id="rotateHint">请横屏体验</div>
+      <div id="fatalError">哎呀，出错了，请重启试试吧~</div>
+    </div>
+
+    <script>
+      (() => {
+        const ERROR_TEXT = "哎呀，出错了，请重启试试吧~";
+        const STORAGE_KEY = "crazy_caveman_save_v1";
+
+        const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const now = () => performance.now();
+
+        const TAUNTS = [
+          "就这？",
+          "别急，机关比你还急。",
+          "你以为安全？我以为你天真。",
+          "欢迎来到“以为”之地。",
+          "再来一次，手感马上就有了（并不会）。",
+          "别躲，地板只是想消失一下。",
+          "终点在跑，你也别站着。",
+          "你踩到的不是地板，是陷阱的开关。",
+          "你很努力，但我更“恶意”。",
+          "别怕，下一次死得更快。",
+        ];
+
+        const COLORS = {
+          bg0: "#0b1020",
+          bg1: "#141b33",
+          sky: "#101a38",
+          solid: "#2f3b6b",
+          solid2: "#3e4a7c",
+          spike: "#ff3d4d",
+          goal: "#6dff8f",
+          goal2: "#2cffdb",
+          player: "#ffd54a",
+          player2: "#ff9f2a",
+          shadow: "rgba(0,0,0,0.30)",
+          text: "#e8f0ff",
+        };
+
+        function showFatal() {
+          const el = document.getElementById("fatalError");
+          if (el) {
+            el.textContent = ERROR_TEXT;
+            el.classList.add("show");
+          }
+        }
+
+        try {
+          const app = document.getElementById("app");
+          const canvas = document.getElementById("c");
+          const ctx = canvas.getContext("2d", { alpha: false });
+          const joystickCanvas = document.getElementById("joystick");
+          const jctx = joystickCanvas.getContext("2d", { alpha: true });
+          const jumpBtn = document.getElementById("jumpBtn");
+
+          const titleChip = document.getElementById("titleChip");
+          const levelChip = document.getElementById("levelChip");
+          const deathChip = document.getElementById("deathChip");
+          const bestChip = document.getElementById("bestChip");
+          const toast = document.getElementById("toast");
+          const rotateHint = document.getElementById("rotateHint");
+
+          const save = (() => {
+            try {
+              const raw = localStorage.getItem(STORAGE_KEY);
+              if (!raw) return { bestLevel: 1, totalDeaths: 0, bestDeaths: null };
+              const parsed = JSON.parse(raw);
+              return {
+                bestLevel: typeof parsed.bestLevel === "number" ? parsed.bestLevel : 1,
+                totalDeaths: typeof parsed.totalDeaths === "number" ? parsed.totalDeaths : 0,
+                bestDeaths: typeof parsed.bestDeaths === "number" ? parsed.bestDeaths : null,
+              };
+            } catch {
+              return { bestLevel: 1, totalDeaths: 0, bestDeaths: null };
+            }
+          })();
+
+          const persist = () => {
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(save));
+            } catch {}
+          };
+
+          const audio = (() => {
+            let ac = null;
+            const ensure = () => {
+              if (ac) return ac;
+              const Ctx = window.AudioContext || window.webkitAudioContext;
+              if (!Ctx) return null;
+              ac = new Ctx();
+              return ac;
+            };
+
+            const beep = (type, freq, dur, gain, detune = 0) => {
+              const c = ensure();
+              if (!c) return;
+              const t0 = c.currentTime;
+              const o = c.createOscillator();
+              const g = c.createGain();
+              o.type = type;
+              o.frequency.value = freq;
+              o.detune.value = detune;
+              g.gain.setValueAtTime(0.0001, t0);
+              g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+              g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+              o.connect(g);
+              g.connect(c.destination);
+              o.start(t0);
+              o.stop(t0 + dur + 0.02);
+            };
+
+            const thud = () => beep("triangle", 90, 0.12, 0.12, -120);
+            const jump = () => beep("square", 520, 0.08, 0.08, 60);
+            const death = () => {
+              const c = ensure();
+              if (!c) return;
+              beep("sawtooth", 180, 0.16, 0.10, -320);
+              setTimeout(() => beep("sawtooth", 120, 0.18, 0.10, -480), 70);
+            };
+            const win = () => {
+              const c = ensure();
+              if (!c) return;
+              beep("square", 440, 0.09, 0.07, 0);
+              setTimeout(() => beep("square", 660, 0.09, 0.07, 0), 90);
+              setTimeout(() => beep("square", 880, 0.11, 0.08, 0), 180);
+            };
+
+            const unlock = () => {
+              const c = ensure();
+              if (!c) return;
+              if (c.state === "suspended") c.resume().catch(() => {});
+            };
+
+            return { thud, jump, death, win, unlock };
+          })();
+
+          const RENDER = {
+            logicalW: 320,
+            logicalH: 180,
+            scale: 1,
+            dpr: 1,
+          };
+
+          const view = {
+            camX: 0,
+            camY: 0,
+          };
+
+          const input = {
+            moveX: 0,
+            jumpPressed: false,
+            jumpHeld: false,
+            wantsJump: false,
+            lastJumpPressAt: -1,
+          };
+
+          const joystick = {
+            activeId: null,
+            cx: 84,
+            cy: 84,
+            radius: 68,
+            knobX: 0,
+            knobY: 0,
+            outX: 0,
+            outY: 0,
+            dead: 0.12,
+          };
+
+          const TILE = 16;
+          const GRAVITY = 1400;
+          const MOVE_ACC = 2200;
+          const MAX_SPEED = 240;
+          const FRICTION = 2200;
+          const JUMP_V = 520;
+          const COYOTE = 0.085;
+          const JUMP_BUFFER = 0.11;
+
+          const state = {
+            levelIndex: 0,
+            levelTime: 0,
+            deathsThisRun: 0,
+            totalDeaths: save.totalDeaths,
+            message: null,
+            messageUntil: 0,
+            freezeUntil: 0,
+            won: false,
+          };
+
+          const player = {
+            x: 0,
+            y: 0,
+            w: 12,
+            h: 14,
+            vx: 0,
+            vy: 0,
+            onGround: false,
+            coyoteUntil: 0,
+            face: 1,
+          };
+
+          function makeLevel(def) {
+            const rows = def.map.trim().split("\n");
+            const h = rows.length;
+            const w = Math.max(...rows.map((r) => r.length));
+            const tiles = new Array(w * h).fill(" ");
+            let spawn = { x: TILE * 2, y: TILE * 2 };
+            const entities = [];
+
+            for (let y = 0; y < h; y++) {
+              const row = rows[y];
+              for (let x = 0; x < w; x++) {
+                const ch = row[x] || " ";
+                if (ch === "P") {
+                  spawn = { x: x * TILE + 2, y: y * TILE + 2 };
+                  tiles[y * w + x] = " ";
+                  continue;
+                }
+                if (ch === "M") {
+                  entities.push({
+                    type: "movingPlatform",
+                    x: x * TILE,
+                    y: y * TILE,
+                    w: TILE * 3,
+                    h: TILE,
+                    baseX: x * TILE,
+                    baseY: y * TILE,
+                    t: 0,
+                    dir: 1,
+                    range: TILE * 4,
+                    speed: 60,
+                    solid: true,
+                  });
+                  tiles[y * w + x] = " ";
+                  continue;
+                }
+                if (ch === "D") {
+                  entities.push({
+                    type: "disappear",
+                    x: x * TILE,
+                    y: y * TILE,
+                    w: TILE,
+                    h: TILE,
+                    solid: true,
+                    armed: false,
+                    gone: false,
+                    timer: 0,
+                  });
+                  tiles[y * w + x] = " ";
+                  continue;
+                }
+                if (ch === "R") {
+                  entities.push({
+                    type: "runnerGoal",
+                    x: x * TILE,
+                    y: y * TILE,
+                    w: TILE,
+                    h: TILE,
+                    vx: 0,
+                    active: false,
+                  });
+                  tiles[y * w + x] = " ";
+                  continue;
+                }
+                tiles[y * w + x] = ch;
+              }
+            }
+
+            const triggers = def.triggers ? def.triggers.map((t) => ({ ...t, fired: false })) : [];
+
+            return {
+              name: def.name || "",
+              w,
+              h,
+              tiles,
+              spawn,
+              entities,
+              triggers,
+              intro: def.intro || null,
+              bg: def.bg || 0,
+            };
+          }
+
+          const LEVEL_DEFS = [
+            {
+              name: "你以为的开始",
+              intro: "向右走，跳一下就行。真的。",
+              map: `
+########################
+#......................#
+#......................#
+#..............####....#
+#..P.................G.#
+########################
+`,
+              triggers: [
+                { kind: "toast", x: 15 * TILE, y: 4 * TILE, w: 3 * TILE, h: 2 * TILE, text: "提示：别太相信地板。" },
+              ],
+            },
+            {
+              name: "地板会思考",
+              intro: "踩着踩着就没了。",
+              map: `
+########################
+#......................#
+#......................#
+#...............####...#
+#..P....DDDD..........G#
+########################
+`,
+            },
+            {
+              name: "欢迎来到尖尖乐园",
+              intro: "别碰红色。",
+              map: `
+########################
+#......................#
+#......................#
+#.....####.............#
+#..P.....#..^^^^^^^..G.#
+########################
+`,
+            },
+            {
+              name: "假终点",
+              intro: "看到绿的就冲？",
+              map: `
+########################
+#......................#
+#......................#
+#.....####.............#
+#..P.....#..g....^^^^..#
+#..........####.....G..#
+########################
+`,
+            },
+            {
+              name: "你追我跑",
+              intro: "终点会跑，你也要跑。",
+              map: `
+########################
+#......................#
+#......................#
+#..P.......####........#
+#..........#..R.....#..#
+#..........#......###.G#
+########################
+`,
+            },
+            {
+              name: "移动平台（并不友好）",
+              intro: "平台会动，你也会掉。",
+              map: `
+########################
+#......................#
+#......................#
+#..P.............####..#
+#........M............G#
+########################
+`,
+            },
+            {
+              name: "消失+尖刺套餐",
+              intro: "二选一：掉下去 or 扎进去。",
+              map: `
+########################
+#......................#
+#......................#
+#....####..............#
+#..P..DDDD..^^^^^^...G.#
+########################
+`,
+            },
+            {
+              name: "假地板",
+              intro: "看起来很稳？",
+              map: `
+########################
+#......................#
+#......................#
+#..P...====.....####...#
+#..........^^^^......G.#
+########################
+`,
+              triggers: [
+                { kind: "fallaway", x: 6 * TILE, y: 4 * TILE, w: 4 * TILE, h: TILE, delay: 0.15 },
+              ],
+            },
+            {
+              name: "最后一步",
+              intro: "别在终点前放松。",
+              map: `
+########################
+#......................#
+#......................#
+#..P......####.........#
+#..........#..^^^^^...G#
+#..........#...........#
+########################
+`,
+              triggers: [
+                { kind: "spawnSpikes", x: 18 * TILE, y: 4 * TILE, w: 5 * TILE, h: TILE, when: "nearGoal" },
+              ],
+            },
+            {
+              name: "你赢了？",
+              intro: "恭喜进入“以为通关”。",
+              map: `
+########################
+#......................#
+#......................#
+#..P......####.........#
+#..........#......R..G.#
+#..........#..^^^^^^...#
+########################
+`,
+              triggers: [
+                { kind: "goalSwap", x: 20 * TILE, y: 3 * TILE, w: 3 * TILE, h: 3 * TILE },
+              ],
+            },
+          ];
+
+          const levels = LEVEL_DEFS.map((d) => makeLevel({ ...d, map: d.map }));
+
+          function getTile(level, tx, ty) {
+            if (tx < 0 || ty < 0 || tx >= level.w || ty >= level.h) return "#";
+            return level.tiles[ty * level.w + tx];
+          }
+
+          function setTile(level, tx, ty, v) {
+            if (tx < 0 || ty < 0 || tx >= level.w || ty >= level.h) return;
+            level.tiles[ty * level.w + tx] = v;
+          }
+
+          function isSolidTile(ch) {
+            return ch === "#" || ch === "=";
+          }
+
+          function isDangerTile(ch) {
+            return ch === "^";
+          }
+
+          function isGoalTile(ch) {
+            return ch === "G";
+          }
+
+          function isFakeGoalTile(ch) {
+            return ch === "g";
+          }
+
+          function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+            return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+          }
+
+          function toastShow(text, ms = 1100) {
+            if (!toast) return;
+            toast.textContent = text;
+            toast.classList.add("show");
+            state.messageUntil = now() + ms;
+          }
+
+          function toastTick() {
+            if (!toast) return;
+            if (toast.classList.contains("show") && now() > state.messageUntil) toast.classList.remove("show");
+          }
+
+          function setLevelIndex(idx, showIntro = true) {
+            state.levelIndex = clamp(idx, 0, levels.length - 1);
+            state.levelTime = 0;
+            const lvl = levels[state.levelIndex];
+            player.x = lvl.spawn.x;
+            player.y = lvl.spawn.y;
+            player.vx = 0;
+            player.vy = 0;
+            player.onGround = false;
+            player.coyoteUntil = 0;
+            view.camX = 0;
+            view.camY = 0;
+
+            for (const e of lvl.entities) {
+              if (e.type === "movingPlatform") {
+                e.x = e.baseX;
+                e.y = e.baseY;
+                e.t = 0;
+                e.dir = 1;
+              }
+              if (e.type === "disappear") {
+                e.solid = true;
+                e.armed = false;
+                e.gone = false;
+                e.timer = 0;
+              }
+              if (e.type === "runnerGoal") {
+                e.vx = 0;
+                e.active = false;
+              }
+            }
+            for (const t of lvl.triggers) t.fired = false;
+
+            state.freezeUntil = now() + 140;
+            if (showIntro && lvl.intro) toastShow(lvl.intro, 1400);
+            updateHud();
+          }
+
+          function updateHud() {
+            if (titleChip) titleChip.textContent = "疯狂原始人";
+            if (levelChip) levelChip.textContent = `第 ${state.levelIndex + 1} 关`;
+            if (deathChip) deathChip.textContent = `死亡：${state.deathsThisRun}`;
+            if (bestChip) bestChip.textContent = `最佳：${save.bestLevel}`;
+          }
+
+          function killPlayer(reason) {
+            if (now() < state.freezeUntil) return;
+            state.deathsThisRun += 1;
+            state.totalDeaths += 1;
+            save.totalDeaths = state.totalDeaths;
+            persist();
+            audio.death();
+            const taunt = TAUNTS[(Math.random() * TAUNTS.length) | 0];
+            toastShow(reason ? `${reason} ${taunt}` : taunt, 1100);
+            setLevelIndex(state.levelIndex, false);
+          }
+
+          function winLevel() {
+            if (now() < state.freezeUntil) return;
+            audio.win();
+            const next = state.levelIndex + 1;
+            save.bestLevel = Math.max(save.bestLevel, next + 1);
+            persist();
+            if (next >= levels.length) {
+              state.won = true;
+              toastShow("你居然真的通关了。", 1600);
+              state.freezeUntil = now() + 1600;
+              return;
+            }
+            toastShow("过关？先别高兴。", 900);
+            setTimeout(() => setLevelIndex(next, true), 520);
+          }
+
+          function resolveTileCollisions(level, obj) {
+            const steps = 2;
+            for (let i = 0; i < steps; i++) {
+              const nx = obj.x;
+              const ny = obj.y;
+              const w = obj.w;
+              const h = obj.h;
+              const minTx = Math.floor(nx / TILE);
+              const maxTx = Math.floor((nx + w - 0.001) / TILE);
+              const minTy = Math.floor(ny / TILE);
+              const maxTy = Math.floor((ny + h - 0.001) / TILE);
+              for (let ty = minTy; ty <= maxTy; ty++) {
+                for (let tx = minTx; tx <= maxTx; tx++) {
+                  const ch = getTile(level, tx, ty);
+                  if (!isSolidTile(ch)) continue;
+                  const bx = tx * TILE;
+                  const by = ty * TILE;
+                  const bw = TILE;
+                  const bh = TILE;
+                  if (!rectsOverlap(nx, ny, w, h, bx, by, bw, bh)) continue;
+                  const ox1 = bx + bw - nx;
+                  const ox2 = nx + w - bx;
+                  const oy1 = by + bh - ny;
+                  const oy2 = ny + h - by;
+                  const penX = Math.min(ox1, ox2);
+                  const penY = Math.min(oy1, oy2);
+                  if (penX < penY) {
+                    if (ox1 < ox2) obj.x = bx + bw;
+                    else obj.x = bx - w;
+                    obj.vx = 0;
+                  } else {
+                    if (oy1 < oy2) {
+                      obj.y = by + bh;
+                      obj.vy = Math.max(obj.vy, 0);
+                    } else {
+                      obj.y = by - h;
+                      obj.vy = Math.min(obj.vy, 0);
+                      obj.onGround = true;
+                      obj.coyoteUntil = now() + COYOTE * 1000;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          function resolveEntityCollisions(level, obj, dt) {
+            for (const e of level.entities) {
+              if (!e.solid) continue;
+              if (e.gone) continue;
+              if (!rectsOverlap(obj.x, obj.y, obj.w, obj.h, e.x, e.y, e.w, e.h)) continue;
+
+              const ox1 = e.x + e.w - obj.x;
+              const ox2 = obj.x + obj.w - e.x;
+              const oy1 = e.y + e.h - obj.y;
+              const oy2 = obj.y + obj.h - e.y;
+              const penX = Math.min(ox1, ox2);
+              const penY = Math.min(oy1, oy2);
+
+              if (penX < penY) {
+                if (ox1 < ox2) obj.x = e.x + e.w;
+                else obj.x = e.x - obj.w;
+                obj.vx = 0;
+              } else {
+                if (oy1 < oy2) {
+                  obj.y = e.y + e.h;
+                  obj.vy = Math.max(obj.vy, 0);
+                } else {
+                  obj.y = e.y - obj.h;
+                  obj.vy = Math.min(obj.vy, 0);
+                  obj.onGround = true;
+                  obj.coyoteUntil = now() + COYOTE * 1000;
+                  if (e.type === "movingPlatform") obj.x += e.vx * dt;
+                  if (e.type === "disappear") e.armed = true;
+                }
+              }
+            }
+          }
+
+          function checkHazardsAndGoal(level) {
+            const px0 = player.x;
+            const py0 = player.y;
+            const px1 = player.x + player.w;
+            const py1 = player.y + player.h;
+
+            const minTx = Math.floor(px0 / TILE);
+            const maxTx = Math.floor((px1 - 0.001) / TILE);
+            const minTy = Math.floor(py0 / TILE);
+            const maxTy = Math.floor((py1 - 0.001) / TILE);
+
+            for (let ty = minTy; ty <= maxTy; ty++) {
+              for (let tx = minTx; tx <= maxTx; tx++) {
+                const ch = getTile(level, tx, ty);
+                if (isDangerTile(ch)) {
+                  killPlayer("扎到了。");
+                  return;
+                }
+                if (isFakeGoalTile(ch)) {
+                  killPlayer("假终点，真惊喜。");
+                  return;
+                }
+                if (isGoalTile(ch)) {
+                  winLevel();
+                  return;
+                }
+              }
+            }
+
+            for (const e of level.entities) {
+              if (e.type === "runnerGoal") {
+                if (rectsOverlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h)) {
+                  winLevel();
+                  return;
+                }
+              }
+            }
+          }
+
+          function runTriggers(level) {
+            for (const t of level.triggers) {
+              if (t.fired) continue;
+              if (!rectsOverlap(player.x, player.y, player.w, player.h, t.x, t.y, t.w, t.h)) continue;
+              t.fired = true;
+
+              if (t.kind === "toast") {
+                toastShow(t.text || "你触发了什么。", 1200);
+              }
+
+              if (t.kind === "fallaway") {
+                const delay = typeof t.delay === "number" ? t.delay : 0.12;
+                setTimeout(() => {
+                  const x0 = Math.floor(t.x / TILE);
+                  const x1 = Math.floor((t.x + t.w - 1) / TILE);
+                  const y0 = Math.floor(t.y / TILE);
+                  for (let tx = x0; tx <= x1; tx++) setTile(level, tx, y0, " ");
+                  audio.thud();
+                }, delay * 1000);
+              }
+
+              if (t.kind === "spawnSpikes") {
+                const x0 = Math.floor(t.x / TILE);
+                const x1 = Math.floor((t.x + t.w - 1) / TILE);
+                const y0 = Math.floor(t.y / TILE);
+                for (let tx = x0; tx <= x1; tx++) setTile(level, tx, y0, "^");
+                toastShow("你是不是忘了还有机关？", 900);
+              }
+
+              if (t.kind === "goalSwap") {
+                const cx = Math.floor((t.x + t.w * 0.5) / TILE);
+                const cy = Math.floor((t.y + t.h * 0.5) / TILE);
+                for (let y = cy - 2; y <= cy + 2; y++) {
+                  for (let x = cx - 2; x <= cx + 2; x++) {
+                    if (getTile(level, x, y) === "G") setTile(level, x, y, "g");
+                  }
+                }
+                toastShow("终点：谢谢你，换我了。", 1000);
+              }
+            }
+          }
+
+          function updateEntities(level, dt) {
+            for (const e of level.entities) {
+              if (e.type === "movingPlatform") {
+                e.t += dt * e.speed * e.dir;
+                if (e.t > e.range) {
+                  e.t = e.range;
+                  e.dir *= -1;
+                } else if (e.t < 0) {
+                  e.t = 0;
+                  e.dir *= -1;
+                }
+                const prevX = e.x;
+                e.x = e.baseX + e.t;
+                e.vx = (e.x - prevX) / dt;
+              }
+
+              if (e.type === "disappear") {
+                if (e.gone) continue;
+                if (e.armed) {
+                  e.timer += dt;
+                  if (e.timer > 0.22) {
+                    e.gone = true;
+                    e.solid = false;
+                    audio.thud();
+                  }
+                }
+              }
+
+              if (e.type === "runnerGoal") {
+                const dist = player.x - e.x;
+                const triggerDist = 70;
+                if (!e.active && Math.abs(dist) < triggerDist) {
+                  e.active = true;
+                  toastShow("终点：拜拜~", 900);
+                }
+                if (e.active) {
+                  const dir = dist > 0 ? -1 : 1;
+                  const desired = dir * 120;
+                  e.vx = lerp(e.vx, desired, clamp(dt * 6, 0, 1));
+                  e.x += e.vx * dt;
+                  const minX = TILE;
+                  const maxX = (level.w - 2) * TILE;
+                  e.x = clamp(e.x, minX, maxX);
+                }
+              }
+            }
+          }
+
+          function updatePlayer(level, dt) {
+            const t = now();
+            const frozen = t < state.freezeUntil;
+
+            input.wantsJump = false;
+            if (input.jumpPressed) {
+              input.lastJumpPressAt = t;
+              input.jumpPressed = false;
+            }
+            if (t - input.lastJumpPressAt < JUMP_BUFFER * 1000) input.wantsJump = true;
+
+            if (frozen) {
+              player.vx *= 0.85;
+              player.vy += GRAVITY * dt;
+            } else {
+              const mx = clamp(input.moveX, -1, 1);
+              if (Math.abs(mx) > 0.01) {
+                player.face = mx >= 0 ? 1 : -1;
+                player.vx += mx * MOVE_ACC * dt;
+              } else {
+                const sign = Math.sign(player.vx);
+                const nv = Math.abs(player.vx) - FRICTION * dt;
+                player.vx = (nv > 0 ? nv : 0) * sign;
+              }
+              player.vx = clamp(player.vx, -MAX_SPEED, MAX_SPEED);
+
+              if (input.wantsJump && (player.onGround || t < player.coyoteUntil)) {
+                player.vy = -JUMP_V;
+                player.onGround = false;
+                player.coyoteUntil = 0;
+                input.lastJumpPressAt = -1;
+                audio.jump();
+              }
+
+              player.vy += GRAVITY * dt;
+            }
+
+            player.onGround = false;
+
+            player.x += player.vx * dt;
+            resolveTileCollisions(level, player);
+            resolveEntityCollisions(level, player, dt);
+
+            player.y += player.vy * dt;
+            resolveTileCollisions(level, player);
+            resolveEntityCollisions(level, player, dt);
+
+            if (player.y > level.h * TILE + 200) {
+              killPlayer("掉下去了。");
+              return;
+            }
+
+            checkHazardsAndGoal(level);
+            runTriggers(level);
+          }
+
+          function fit() {
+            const rect = app.getBoundingClientRect();
+            const isPortrait = rect.width < rect.height;
+            if (rotateHint) rotateHint.classList.toggle("show", isPortrait);
+
+            const dpr = clamp(window.devicePixelRatio || 1, 1, 3);
+            RENDER.dpr = dpr;
+
+            const w = Math.max(1, Math.floor(rect.width * dpr));
+            const h = Math.max(1, Math.floor(rect.height * dpr));
+            canvas.width = w;
+            canvas.height = h;
+
+            const targetW = RENDER.logicalW;
+            const targetH = RENDER.logicalH;
+            const scaleX = w / targetW;
+            const scaleY = h / targetH;
+            const scale = Math.max(1, Math.floor(Math.min(scaleX, scaleY)));
+            RENDER.scale = scale;
+
+            joystickCanvas.width = Math.floor(168 * dpr);
+            joystickCanvas.height = Math.floor(168 * dpr);
+            joystickCanvas.style.width = "168px";
+            joystickCanvas.style.height = "168px";
+            jctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+
+          function drawJoystick() {
+            const w = joystickCanvas.width / RENDER.dpr;
+            const h = joystickCanvas.height / RENDER.dpr;
+            jctx.clearRect(0, 0, w, h);
+
+            const baseR = 68;
+            const knobR = 26;
+            const cx = 84;
+            const cy = 84;
+
+            jctx.globalAlpha = 0.85;
+            jctx.fillStyle = "rgba(0,0,0,0.35)";
+            jctx.beginPath();
+            jctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+            jctx.fill();
+            jctx.strokeStyle = "rgba(255,255,255,0.10)";
+            jctx.lineWidth = 2;
+            jctx.stroke();
+
+            const kx = cx + joystick.knobX * baseR;
+            const ky = cy + joystick.knobY * baseR;
+            jctx.globalAlpha = 0.92;
+            jctx.fillStyle = "rgba(255,255,255,0.14)";
+            jctx.beginPath();
+            jctx.arc(kx, ky, knobR, 0, Math.PI * 2);
+            jctx.fill();
+            jctx.strokeStyle = "rgba(255,255,255,0.18)";
+            jctx.stroke();
+          }
+
+          function draw() {
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.imageSmoothingEnabled = false;
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = COLORS.bg0;
+            ctx.fillRect(0, 0, w, h);
+
+            const vw = RENDER.logicalW * RENDER.scale;
+            const vh = RENDER.logicalH * RENDER.scale;
+            const ox = Math.floor((w - vw) * 0.5);
+            const oy = Math.floor((h - vh) * 0.5);
+
+            ctx.setTransform(RENDER.scale, 0, 0, RENDER.scale, ox, oy);
+
+            const level = levels[state.levelIndex];
+            const worldW = level.w * TILE;
+            const worldH = level.h * TILE;
+
+            const targetCamX = clamp(player.x + player.w * 0.5 - RENDER.logicalW * 0.5, 0, Math.max(0, worldW - RENDER.logicalW));
+            const targetCamY = clamp(player.y + player.h * 0.5 - RENDER.logicalH * 0.55, 0, Math.max(0, worldH - RENDER.logicalH));
+            view.camX = lerp(view.camX, targetCamX, 0.12);
+            view.camY = lerp(view.camY, targetCamY, 0.12);
+
+            ctx.translate(-Math.floor(view.camX), -Math.floor(view.camY));
+
+            ctx.fillStyle = COLORS.sky;
+            ctx.fillRect(0, 0, worldW, worldH);
+
+            const x0 = Math.floor(view.camX / TILE) - 1;
+            const y0 = Math.floor(view.camY / TILE) - 1;
+            const x1 = Math.floor((view.camX + RENDER.logicalW) / TILE) + 1;
+            const y1 = Math.floor((view.camY + RENDER.logicalH) / TILE) + 1;
+
+            for (let ty = y0; ty <= y1; ty++) {
+              for (let tx = x0; tx <= x1; tx++) {
+                const ch = getTile(level, tx, ty);
+                const x = tx * TILE;
+                const y = ty * TILE;
+                if (ch === "#") {
+                  ctx.fillStyle = COLORS.solid;
+                  ctx.fillRect(x, y, TILE, TILE);
+                  ctx.fillStyle = COLORS.solid2;
+                  ctx.fillRect(x, y, TILE, 3);
+                } else if (ch === "=") {
+                  ctx.fillStyle = "#2a2f3d";
+                  ctx.fillRect(x, y, TILE, TILE);
+                  ctx.fillStyle = "#5c6070";
+                  ctx.fillRect(x, y, TILE, 2);
+                } else if (ch === "^") {
+                  ctx.fillStyle = COLORS.spike;
+                  ctx.beginPath();
+                  ctx.moveTo(x, y + TILE);
+                  ctx.lineTo(x + TILE * 0.5, y);
+                  ctx.lineTo(x + TILE, y + TILE);
+                  ctx.closePath();
+                  ctx.fill();
+                } else if (ch === "G" || ch === "g") {
+                  const isFake = ch === "g";
+                  ctx.fillStyle = isFake ? "#84ff64" : COLORS.goal;
+                  ctx.fillRect(x + 3, y + 3, TILE - 6, TILE - 6);
+                  ctx.fillStyle = isFake ? "#1c2a1b" : COLORS.goal2;
+                  ctx.fillRect(x + 5, y + 5, TILE - 10, TILE - 10);
+                }
+              }
+            }
+
+            for (const e of level.entities) {
+              if (e.type === "movingPlatform") {
+                ctx.fillStyle = "#525a7e";
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+                ctx.fillStyle = "#8089b1";
+                ctx.fillRect(e.x, e.y, e.w, 2);
+              }
+              if (e.type === "disappear") {
+                if (e.gone) continue;
+                ctx.fillStyle = e.armed ? "#a074ff" : "#6b5bd1";
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+                ctx.fillStyle = "rgba(255,255,255,0.18)";
+                ctx.fillRect(e.x, e.y, e.w, 2);
+              }
+              if (e.type === "runnerGoal") {
+                ctx.fillStyle = COLORS.goal;
+                ctx.fillRect(e.x + 2, e.y + 2, e.w - 4, e.h - 4);
+                ctx.fillStyle = COLORS.goal2;
+                ctx.fillRect(e.x + 5, e.y + 5, e.w - 10, e.h - 10);
+              }
+            }
+
+            const px = player.x;
+            const py = player.y;
+            ctx.fillStyle = COLORS.shadow;
+            ctx.fillRect(px + 2, py + player.h - 2, player.w, 3);
+            ctx.fillStyle = COLORS.player;
+            ctx.fillRect(px, py, player.w, player.h);
+            ctx.fillStyle = COLORS.player2;
+            const eyeX = player.face > 0 ? px + player.w - 4 : px + 2;
+            ctx.fillRect(eyeX, py + 4, 2, 2);
+
+            if (state.won) {
+              ctx.setTransform(RENDER.scale, 0, 0, RENDER.scale, ox, oy);
+              ctx.fillStyle = "rgba(0,0,0,0.55)";
+              ctx.fillRect(0, 0, RENDER.logicalW, RENDER.logicalH);
+              ctx.fillStyle = COLORS.text;
+              ctx.font = "900 18px system-ui, sans-serif";
+              ctx.textAlign = "center";
+              ctx.fillText("通关！", RENDER.logicalW / 2, RENDER.logicalH / 2 - 10);
+              ctx.font = "700 12px system-ui, sans-serif";
+              ctx.fillText("再玩一次？点右下角跳跃键", RENDER.logicalW / 2, RENDER.logicalH / 2 + 16);
+            }
+          }
+
+          let last = now();
+          function tick() {
+            const t = now();
+            const dt = clamp((t - last) / 1000, 0, 1 / 20);
+            last = t;
+
+            const level = levels[state.levelIndex];
+            state.levelTime += dt;
+
+            updateEntities(level, dt);
+            updatePlayer(level, dt);
+
+            toastTick();
+            draw();
+            drawJoystick();
+            requestAnimationFrame(tick);
+          }
+
+          function setMoveFromJoystick() {
+            const x = joystick.outX;
+            input.moveX = Math.abs(x) < joystick.dead ? 0 : x;
+          }
+
+          function updateJoystickFromPointer(clientX, clientY) {
+            const rect = joystickCanvas.getBoundingClientRect();
+            const localX = clientX - rect.left;
+            const localY = clientY - rect.top;
+            const cx = rect.width * 0.5;
+            const cy = rect.height * 0.5;
+            const dx = localX - cx;
+            const dy = localY - cy;
+            const r = Math.sqrt(dx * dx + dy * dy);
+            const maxR = joystick.radius;
+            const k = r > 0.0001 ? Math.min(1, maxR / r) : 1;
+            const nx = dx * k / maxR;
+            const ny = dy * k / maxR;
+            joystick.knobX = clamp(nx, -1, 1);
+            joystick.knobY = clamp(ny, -1, 1);
+            joystick.outX = clamp(nx, -1, 1);
+            joystick.outY = clamp(ny, -1, 1);
+            setMoveFromJoystick();
+          }
+
+          function resetJoystick() {
+            joystick.activeId = null;
+            joystick.knobX = 0;
+            joystick.knobY = 0;
+            joystick.outX = 0;
+            joystick.outY = 0;
+            input.moveX = 0;
+          }
+
+          joystickCanvas.addEventListener(
+            "pointerdown",
+            (e) => {
+              audio.unlock();
+              joystickCanvas.setPointerCapture(e.pointerId);
+              joystick.activeId = e.pointerId;
+              updateJoystickFromPointer(e.clientX, e.clientY);
+            },
+            { passive: false }
+          );
+          joystickCanvas.addEventListener(
+            "pointermove",
+            (e) => {
+              if (joystick.activeId !== e.pointerId) return;
+              updateJoystickFromPointer(e.clientX, e.clientY);
+            },
+            { passive: false }
+          );
+          joystickCanvas.addEventListener(
+            "pointerup",
+            (e) => {
+              if (joystick.activeId !== e.pointerId) return;
+              resetJoystick();
+            },
+            { passive: false }
+          );
+          joystickCanvas.addEventListener(
+            "pointercancel",
+            () => {
+              resetJoystick();
+            },
+            { passive: true }
+          );
+
+          const pressJump = () => {
+            audio.unlock();
+            input.jumpPressed = true;
+            input.jumpHeld = true;
+            if (state.won) {
+              state.won = false;
+              state.deathsThisRun = 0;
+              setLevelIndex(0, true);
+            }
+          };
+          const releaseJump = () => {
+            input.jumpHeld = false;
+          };
+
+          jumpBtn.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            jumpBtn.setPointerCapture(e.pointerId);
+            pressJump();
+          });
+          jumpBtn.addEventListener("pointerup", () => releaseJump());
+          jumpBtn.addEventListener("pointercancel", () => releaseJump());
+
+          window.addEventListener(
+            "keydown",
+            (e) => {
+              if (e.key === " " || e.key === "ArrowUp" || e.key === "w" || e.key === "W") pressJump();
+              if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") input.moveX = -1;
+              if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") input.moveX = 1;
+            },
+            { passive: true }
+          );
+          window.addEventListener(
+            "keyup",
+            (e) => {
+              if (e.key === " " || e.key === "ArrowUp" || e.key === "w" || e.key === "W") releaseJump();
+              if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") if (input.moveX < 0) input.moveX = 0;
+              if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") if (input.moveX > 0) input.moveX = 0;
+            },
+            { passive: true }
+          );
+
+          window.addEventListener("resize", fit, { passive: true });
+          window.addEventListener("orientationchange", fit, { passive: true });
+
+          updateHud();
+          fit();
+          setLevelIndex(0, true);
+          requestAnimationFrame(tick);
+
+          window.addEventListener("error", () => showFatal());
+          window.addEventListener("unhandledrejection", () => showFatal());
+        } catch (e) {
+          showFatal();
+        }
+      })();
+    </script>
+  </body>
+</html>
+
